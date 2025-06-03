@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Space Math Battle</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/addons/p5.sound.min.js"></script>
+  <style>
+    body {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+      background: linear-gradient(to bottom, #0a0a23, #1b1b4d);
+      font-family: 'Courier New', monospace;
+      color: #fff;
+    }
+    #game-container {
+      text-align: center;
+    }
+    canvas {
+      border: 4px solid #ffd700;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(255, 215, 0, 0.7);
+    }
+    #question, #feedback, #score, #level, #timer, #health, #combo {
+      font-size: 28px;
+      margin: 10px;
+      text-shadow: 0 0 8px #ffd700, 0 0 12px rgba(255, 215, 0, 0.5);
+      transition: opacity 0.3s;
+    }
+    #answer {
+      font-size: 24px;
+      padding: 12px;
+      width: 250px;
+      border: 2px solid #ffd700;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+    }
+    #submit {
+      font-size: 20px;
+      padding: 12px 30px;
+      cursor: pointer;
+      background: #ffd700;
+      color: #0a0a23;
+      border: none;
+      border-radius: 8px;
+      transition: transform 0.2s;
+    }
+    #submit:hover {
+      transform: scale(1.1);
+    }
+    #submit:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+  </style>
+</head>
+<body>
+  <div id="game-container">
+    <div id="score">Score: 0</div>
+    <div id="level">Level: 1</div>
+    <div id="health">Health: 3</div>
+    <div id="combo">Combo: 1x</div>
+    <div id="timer">Time: 20</div>
+    <div id="question">Loading...</div>
+    <input type="number" id="answer" placeholder="Enter your answer">
+    <button id="submit" onclick="checkAnswer()">Fire!</button>
+    <div id="feedback"></div>
+  </div>
+  <script>
+    // Game state
+    const state = {
+      score: 0,
+      level: 1,
+      health: 3,
+      timeLeft: 20,
+      correctAnswers: 0,
+      combo: 1,
+      isGameOver: false,
+      stars: [],
+      enemies: [],
+      particles: [],
+      currentQuestion: {}
+    };
+
+    // Constants
+    const CANVAS_WIDTH = 600;
+    const CANVAS_HEIGHT = 400;
+    const MAX_COMBO = 5;
+    const MAX_HEALTH = 3;
+    const BASE_QUESTIONS = [
+      { equation: "2x + 5 = 11", answer: 3, level: 1, isBoss: false },
+      { equation: "x - 7 = 8", answer: 15, level: 1, isBoss: false },
+      { equation: "3x = 18", answer: 6, level: 1, isBoss: false },
+      { equation: "4x - 6 = 10", answer: 4, level: 2, isBoss: false },
+      { equation: "x/2 + 3 = 7", answer: 8, level: 2, isBoss: false },
+      { equation: "5x + 2 = 17", answer: 3, level: 2, isBoss: false },
+      { equation: "2x + 3x = 25", answer: 5, level: 3, isBoss: true },
+      { equation: "x/3 - 4 = 1", answer: 15, level: 3, isBoss: true }
+    ];
+
+    // DOM elements
+    const DOM = {
+      score: document.getElementById('score'),
+      level: document.getElementById('level'),
+      health: document.getElementById('health'),
+      combo: document.getElementById('combo'),
+      timer: document.getElementById('timer'),
+      question: document.getElementById('question'),
+      answer: document.getElementById('answer'),
+      feedback: document.getElementById('feedback'),
+      submit: document.getElementById('submit')
+    };
+
+    // Generate random algebra question
+    function generateRandomQuestion() {
+      const a = Math.floor(random(1, 10));
+      const b = Math.floor(random(1, 10));
+      const c = Math.floor(random(1, 20));
+      const type = Math.floor(random(3));
+      let equation, answer;
+      if (type === 0) { // ax + b = c
+        answer = (c - b) / a;
+        equation = `${a}x + ${b} = ${c}`;
+      } else if (type === 1) { // x - b = c
+        answer = c + b;
+        equation = `x - ${b} = ${c}`;
+      } else { // ax = c
+        answer = c / a;
+        equation = `${a}x = ${c}`;
+      }
+      return { equation, answer: Math.round(answer * 100) / 100, level: Math.min(state.level, 3), isBoss: false };
+    }
+
+    // Spawn new enemy
+    function spawnEnemy() {
+      return {
+        x: random(CANVAS_WIDTH),
+        y: random(50, 150),
+        vx: random(-4, 4),
+        vy: 0,
+        size: 20,
+        type: random(['scout', 'cruiser'])
+      };
+    }
+
+    // Initialize game
+    function preload() {
+      // Sounds disabled to avoid loading issues
+      // correctSound = loadSound('https://cdn.pixabay.com/audio/2023/02/22/audio_4a48d2d53e.mp3');
+      // wrongSound = loadSound('https://cdn.pixabay.com/audio/2023/02/28/audio_4ed0fe5fd0.mp3');
+      // bossSound = loadSound('https://cdn.pixabay.com/audio/2023/03/09/audio_6e5f6f4f6f.mp3');
+      console.log("Preload completed");
+    }
+
+    function setup() {
+      createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT).parent('game-container');
+      for (let i = 0; i < 100; i++) {
+        state.stars.push({ x: random(CANVAS_WIDTH), y: random(CANVAS_HEIGHT), size: random(1, 4) });
+      }
+      for (let i = 0; i < 3; i++) {
+        state.enemies.push(spawnEnemy());
+      }
+      newQuestion();
+      setInterval(updateTimer, 1000);
+    }
+
+    // Render game
+    function draw() {
+      background(10, 10, 35 + sin(frameCount * 0.05) * 15);
+      // Draw stars
+      state.stars.forEach(star => {
+        fill(255, 255, random(150, 255));
+        noStroke();
+        circle(star.x, star.y, star.size);
+      });
+      // Draw enemies
+      state.enemies.forEach(enemy => {
+        noStroke();
+        fill(255, 255, 255, 50); // Subtle glow
+        ellipse(enemy.x, enemy.y, enemy.size * 1.2, enemy.size * 1.2);
+        if (state.currentQuestion.isBoss) {
+          fill(255, 0, 0);
+          const size = enemy.size * (1 + 0.15 * Math.sin(frameCount * 0.08));
+          rect(enemy.x - size, enemy.y - size, size * 2, size * 2);
+          enemy.x += Math.sin(frameCount * 0.05) * 2;
+        } else if (enemy.type === 'scout') {
+          fill(200, 0, 0);
+          triangle(enemy.x - enemy.size, enemy.y + enemy.size, enemy.x + enemy.size, enemy.y + enemy.size, enemy.x, enemy.y - enemy.size);
+          enemy.x += enemy.vx;
+          enemy.y += Math.sin(frameCount * 0.1) * 2;
+        } else {
+          fill(100, 0, 200);
+          ellipse(enemy.x, enemy.y, enemy.size * 1.5, enemy.size);
+          enemy.y += 1;
+        }
+        if (enemy.x < 0 || enemy.x > CANVAS_WIDTH) enemy.vx *= -1;
+        if (enemy.y > CANVAS_HEIGHT) enemy.y = random(50, 150);
+      });
+      // Draw spaceship
+      fill(255, 215, 0, 150);
+      ellipse(CANVAS_WIDTH / 2, 320, 20, 40);
+      fill(255, 215, 0);
+      triangle(CANVAS_WIDTH / 2 - 20, 300, CANVAS_WIDTH / 2 + 20, 300, CANVAS_WIDTH / 2, 260);
+      fill(255, 69, random(0, 100));
+      ellipse(CANVAS_WIDTH / 2, 310, 15, 30);
+      // Draw particles
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        const p = state.particles[i];
+        fill(p.r, p.g, 0, p.alpha);
+        circle(p.x, p.y, p.size);
+        p.x += p.vx;
+        p.y += p.vy;
+        p.alpha -= 5;
+        if (p.alpha <= 0) state.particles.splice(i, 1);
+      }
+      // Draw HUD
+      fill(255);
+      textSize(40);
+      textAlign(CENTER, CENTER);
+      text("Space Math Battle", CANVAS_WIDTH / 2, 50);
+      textSize(24);
+      text(state.currentQuestion.isBoss ? "Defeat the Boss!" : "Blast the enemy!", CANVAS_WIDTH / 2, 100);
+      // Game over screen
+      if (state.isGameOver) {
+        fill(255, 0, 0, 200 + 55 * Math.sin(frameCount * 0.1));
+        textSize(48);
+        text("Game Over!", CANVAS_WIDTH / 2, CANVAS_HEIGHT / 2);
+      }
+    }
+
+    // Game logic
+    function newQuestion() {
+      const availableQuestions = BASE_QUESTIONS.filter(q => q.level <= state.level);
+      if (availableQuestions.length === 0) {
+        DOM.question.innerText = "Error: No questions available!";
+        console.error("No questions available for level", state.level);
+        return;
+      }
+      state.currentQuestion = state.correctAnswers % 3 === 0 && state.correctAnswers > 0
+        ? (availableQuestions.filter(q => q.isBoss)[0] || generateRandomQuestion())
+        : (Math.random() < 0.5 ? random(availableQuestions.filter(q => !q.isBoss)) : generateRandomQuestion());
+      DOM.question.innerText = state.currentQuestion.isBoss
+        ? `Boss Mission: ${state.currentQuestion.equation}`
+        : `Mission: ${state.currentQuestion.equation}`;
+      DOM.answer.value = '';
+      DOM.feedback.innerText = '';
+      state.timeLeft = state.currentQuestion.isBoss ? 30 : 20;
+      DOM.timer.innerText = `Time: ${state.timeLeft}`;
+      console.log("New question loaded:", state.currentQuestion.equation);
+    }
+
+    function updateTimer() {
+      if (state.isGameOver) return;
+      state.timeLeft--;
+      DOM.timer.innerText = `Time: ${state.timeLeft}`;
+      if (state.timeLeft <= 0) {
+        state.health = Math.max(0, state.health - 1);
+        state.combo = 1;
+        DOM.combo.innerText = `Combo: ${state.combo}x`;
+        DOM.health.innerText = `Health: ${state.health}`;
+        DOM.feedback.innerText = "Time's up! Shields damaged!";
+        if (state.health <= 0) {
+          state.isGameOver = true;
+          DOM.feedback.innerText = "Game Over! Refresh to retry.";
+          DOM.submit.disabled = true;
+          console.log("Game over: Health reached 0");
+          return;
+        }
+        newQuestion();
+      }
+    }
+
+    function checkAnswer() {
+      if (state.isGameOver) return;
+      const userAnswer = parseFloat(DOM.answer.value);
+      if (userAnswer === state.currentQuestion.answer) {
+        state.correctAnswers++;
+        state.combo = Math.min(state.combo + 1, MAX_COMBO);
+        const points = (state.currentQuestion.isBoss ? 30 : 10 * state.level) * state.combo;
+        state.score += points;
+        DOM.feedback.innerText = state.currentQuestion.isBoss
+          ? `Boss Defeated! ${points} pts!`
+          : `Enemy blasted! ${points} pts!`;
+        DOM.score.innerText = `Score: ${state.score}`;
+        DOM.combo.innerText = `Combo: ${state.combo}x`;
+        // Destroy enemy
+        if (state.enemies.length > 0) {
+          const enemy = state.enemies.shift();
+          const particleCount = state.currentQuestion.isBoss ? 50 : 30;
+          for (let i = 0; i < particleCount; i++) {
+            state.particles.push({
+              x: enemy.x,
+              y: enemy.y,
+              vx: random(-4, 4),
+              vy: random(-4, 4),
+              size: random(4, 12),
+              alpha: 255,
+              r: random(200, 255),
+              g: random(100, 215)
+            });
+          }
+        }
+        state.enemies.push(spawnEnemy());
+        if (state.score >= state.level * 50) {
+          state.level++;
+          DOM.level.innerText = `Level: ${state.level}`;
+          DOM.feedback.innerText = `Level Up! Enemy fleet incoming!`;
+        }
+      } else {
+        state.health = Math.max(0, state.health - 1);
+        state.combo = 1;
+        DOM.combo.innerText = `Combo: ${state.combo}x`;
+        DOM.health.innerText = `Health: ${state.health}`;
+        DOM.feedback.innerText = "Shields hit! Retry mission!";
+        if (state.health <= 0) {
+          state.isGameOver = true;
+          DOM.feedback.innerText = "Game Over! Refresh to retry.";
+          DOM.submit.disabled = true;
+          console.log("Game over: Health reached 0");
+          return;
+        }
+      }
+      newQuestion();
+    }
+
+    document.getElementById('answer').addEventListener('keypress', event => {
+      if (event.key === 'Enter' && !state.isGameOver) checkAnswer();
+    });
+  </script>
+</body>
+</html>
